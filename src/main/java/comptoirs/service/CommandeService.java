@@ -105,9 +105,37 @@ public class CommandeService {
      *                                                         pas positive
      */
     @Transactional
+
     public Ligne ajouterLigne(int commandeNum, int produitRef, @Positive int quantite) {
-        // TODO : implémenter cette méthode
-        throw new UnsupportedOperationException("Pas encore implémenté");
+        if (quantite <= 0) {
+            throw new jakarta.validation.ConstraintViolationException("La quantité doit être positive", null);
+        }
+
+        var commande = commandeDao.findById(commandeNum)
+            .orElseThrow(() -> new java.util.NoSuchElementException("Commande introuvable : " + commandeNum));
+
+        if (commande.getEnvoyeele() != null) {
+            throw new IllegalStateException("La commande a déjà été envoyée");
+        }
+
+        var produit = produitDao.findById(produitRef)
+            .orElseThrow(() -> new java.util.NoSuchElementException("Produit introuvable : " + produitRef));
+
+        if (produit.isIndisponible()) {
+            throw new IllegalStateException("Le produit est indisponible");
+        }
+
+        if (produit.getUnitesEnStock() < quantite) {
+            throw new IllegalStateException("Stock insuffisant pour le produit : " + produitRef);
+        }
+
+        var ligne = new Ligne(commande, produit, quantite);
+
+        produit.setUnitesCommandees(produit.getUnitesCommandees() + quantite);
+
+        ligneDao.save(ligne);
+
+        return ligne;
     }
 
     /**
@@ -130,7 +158,30 @@ public class CommandeService {
      */
     @Transactional
     public Commande enregistreExpedition(int commandeNum) {
-        // TODO : implémenter cette méthode
-        throw new UnsupportedOperationException("Pas encore implémenté");
+        var commande = commandeDao.findById(commandeNum)
+            .orElseThrow(() -> new java.util.NoSuchElementException("Commande introuvable : " + commandeNum));
+
+        if (commande.getEnvoyeele() != null) {
+            throw new IllegalStateException("La commande a déjà été envoyée");
+        }
+
+        commande.setEnvoyeele(LocalDate.now());
+
+        for (Ligne ligne : commande.getLignes()) {
+            var produit = ligne.getProduit();
+
+            int nouvelleQuantiteEnStock = produit.getUnitesEnStock() - ligne.getQuantite();
+            if (nouvelleQuantiteEnStock < 0) {
+                throw new IllegalStateException(
+                    "Stock insuffisant pour le produit : " + produit.getReference());
+            }
+            produit.setUnitesEnStock(nouvelleQuantiteEnStock);
+
+            produit.setUnitesCommandees(produit.getUnitesCommandees() - ligne.getQuantite());
+        }
+
+        commandeDao.save(commande);
+
+        return commande;
     }
 }
